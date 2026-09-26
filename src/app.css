@@ -1,0 +1,17 @@
+/* App CSS loads last so its rules win without a specificity fight.
+   The Shell and the Panel carry no padding of their own, so the frame sets it:
+   a 16px gutter on a phone, the panel's 24px margin from a tablet up. */
+.app-band {
+  padding: var(--lt-space-4) var(--lt-space-5) 0;
+}
+
+.app-main {
+  padding: var(--lt-space-7) var(--lt-space-5);
+}
+
+@media (min-width: 48rem) {
+  .app-band,
+  .app-main {
+    padding-inline: var(--lt-space-7);
+  }
+}
