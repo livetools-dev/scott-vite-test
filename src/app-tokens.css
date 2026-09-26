@@ -1,2 +1,13 @@
-/* App-level tokens. Every value here reads a --lt-* token; nothing is a raw colour or size.
- The tool crib needs none of its own yet. */
+/* App-level tokens. Every value here reads a --lt-* token or is a layout
+   proportion the system has no token for; this file is the only place a
+   literal is allowed. */
+:root {
+  /* The answer card and the figures side by side from a laptop up, half
+     each, so the two rates sit side by side. A column may shrink below its
+     content, so nothing inside pushes the page wider than a phone. */
+  --app-one-column: minmax(0, 1fr);
+  --app-answer-column: minmax(0, 1fr);
+  --app-figures-column: minmax(0, 1fr);
+  /* The bar that splits the hour into its costs. */
+  --app-hour-bar-height: var(--lt-space-6);
+}

@@ -15,3 +15,33 @@
     padding-inline: var(--lt-space-7);
   }
 }
+
+/* The answer card beside the figures on a wide screen; one column, answer
+   first, on a phone or tablet. */
+.app-rate-layout {
+  display: grid;
+  grid-template-columns: var(--app-one-column);
+  gap: var(--lt-section-gap);
+  align-items: start;
+}
+
+@media (min-width: 64rem) {
+  .app-rate-layout {
+    grid-template-columns: var(--app-answer-column) var(--app-figures-column);
+  }
+}
+
+.app-hour-bar {
+  display: block;
+  inline-size: 100%;
+  block-size: var(--app-hour-bar-height);
+  border-radius: var(--lt-radius-sm);
+  overflow: hidden;
+}
+
+/* A chart key and its words, on one line. */
+.app-key-label {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--lt-space-2);
+}

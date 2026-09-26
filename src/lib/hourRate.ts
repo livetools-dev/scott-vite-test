@@ -41,6 +41,9 @@ const PAID_WEEKS = 52;
 /** Below this many cutting hours a year the machine is mostly idle, and the rate shows it. */
 export const FEW_CUTTING_HOURS = 1000;
 
+/** From this many cutting hours a year the machine is earning its keep. */
+export const BUSY_CUTTING_HOURS = 2000;
+
 export function hourRate(i: HourRateInputs): HourRate | null {
   const cuttingHours = i.hoursPerWeek * i.weeksPerYear * (i.utilisation / 100);
   if (!(cuttingHours > 0) || !(i.years > 0) || !(i.machinesPerOperator > 0)) return null;
@@ -62,11 +65,18 @@ export function hourRate(i: HourRateInputs): HourRate | null {
 }
 
 const DOLLARS = new Intl.NumberFormat("en-AU", { style: "currency", currency: "AUD" });
+const WHOLE_DOLLARS = new Intl.NumberFormat("en-AU", { style: "currency", currency: "AUD", maximumFractionDigits: 0 });
 const WHOLE = new Intl.NumberFormat("en-AU", { maximumFractionDigits: 0 });
+const PERCENT = new Intl.NumberFormat("en-AU", { style: "percent", maximumFractionDigits: 0 });
 
-/** "$142.50" */
-export function dollars(value: number): string {
-  return DOLLARS.format(value);
+/** "$142.50", or "$180,000" with no cents. */
+export function dollars(value: number, cents: 0 | 2 = 2): string {
+  return (cents === 0 ? WHOLE_DOLLARS : DOLLARS).format(value);
+}
+
+/** 0.61 as "61%" */
+export function percent(fraction: number): string {
+  return PERCENT.format(fraction);
 }
 
 /** "1,288" */
