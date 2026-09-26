@@ -1,0 +1,188 @@
+# Publishes the app to GitHub Pages on every push to main.
+#
+# The checks run first. If any of them fails, nothing is deployed and the site
+# stays exactly as it was; the last job then opens an issue (or adds to the one
+# already open) saying in plain words that the site did not update, which step
+# failed, and where the run is. The AI reads that issue when the person says
+# the site did not change.
+#
+# Pages has to be switched on once per repository, by hand: Settings, Pages,
+# source "GitHub Actions". Nothing here can do that with the default token.
+
+name: Publish to GitHub Pages
+
+on:
+  push:
+    branches: [main]
+  # Lets the run be started again by hand from the Actions tab.
+  workflow_dispatch:
+
+# The default token covers all of these, so no secret is needed.
+permissions:
+  contents: read    # check out the code
+  pages: write      # publish to Pages
+  id-token: write   # prove to Pages that this run is who it says it is
+  issues: write     # open or update the "site did not update" issue
+
+# One publish at a time. A newer push waits for the one in progress rather
+# than cancelling it half way through a deploy.
+concurrency:
+  group: pages
+  cancel-in-progress: false
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    # The name of the step that failed, for the issue. Set by this job's last
+    # step, which runs only on a failure.
+    outputs:
+      failed_step: ${{ steps.which.outputs.name }}
+    steps:
+      - name: Check out the code
+        id: checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Node
+        id: node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      # npm ci installs exactly what package-lock.json records, so the site is
+      # built from the same versions the app was checked with.
+      - name: Install
+        id: install
+        run: npm ci
+
+      # Reads this repository's Pages settings. Its base_path output is where
+      # the site is served from: "/<repository>" normally, and empty under a
+      # custom domain (a CNAME file in public/). It is never worked out from
+      # the repository name, because that is wrong under a custom domain.
+      - name: Read the Pages settings
+        id: pages
+        uses: actions/configure-pages@v5
+
+      # Lint, type check, a trial build and the duplicate-library check. A
+      # failure here stops the run before anything is published.
+      - name: Run the checks
+        id: check
+        run: npm run check
+
+      # The real build, served from the Pages base path. Vite wants the base
+      # to end in a slash and base_path never does, so one is added: an empty
+      # base_path becomes "/", and "/repo" becomes "/repo/".
+      - name: Build for Pages
+        id: build
+        run: npx vite build --base "${{ steps.pages.outputs.base_path }}/"
+
+      # The app picks its screen from the address in the browser (React
+      # Router). Pages has no file for an address such as /speeds and serves
+      # 404.html instead, so 404.html is a copy of the app: opening or
+      # refreshing an inner address shows the right screen, not GitHub's
+      # not-found page.
+      - name: Let inner addresses open the app
+        id: fallback
+        run: cp dist/index.html dist/404.html
+
+      - name: Upload the site
+        id: upload
+        uses: actions/upload-pages-artifact@v3
+        with:
+          path: dist
+
+      # Finds the first step above that failed and hands its name to the
+      # report job. It is worked out here, from this job's own step results,
+      # because looking it up afterwards would need a permission this file
+      # does not give the token.
+      - name: Note which step failed
+        id: which
+        if: failure()
+        env:
+          RESULTS: |
+            Check out the code=${{ steps.checkout.outcome }}
+            Set up Node=${{ steps.node.outcome }}
+            Install=${{ steps.install.outcome }}
+            Read the Pages settings=${{ steps.pages.outcome }}
+            Run the checks=${{ steps.check.outcome }}
+            Build for Pages=${{ steps.build.outcome }}
+            Let inner addresses open the app=${{ steps.fallback.outcome }}
+            Upload the site=${{ steps.upload.outcome }}
+        run: |
+          name=$(printf '%s\n' "$RESULTS" | grep '=failure$' | head -n 1 | sed 's/=failure$//')
+          echo "name=${name:-an unnamed step}" >> "$GITHUB_OUTPUT"
+
+  deploy:
+    needs: build
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - name: Publish
+        id: deployment
+        uses: actions/deploy-pages@v4
+
+  # Runs only when something above failed. It keeps one open issue with this
+  # title: the first failure opens it, later failures add a comment to it.
+  report-failure:
+    needs: [build, deploy]
+    if: failure()
+    runs-on: ubuntu-latest
+    steps:
+      - name: Say that the site did not update
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+          BUILD_RESULT: ${{ needs.build.result }}
+          BUILD_FAILED_STEP: ${{ needs.build.outputs.failed_step }}
+        run: |
+          # The build job names its own failed step; if the build passed, it
+          # was the publish itself that failed.
+          if [ "$BUILD_RESULT" = "success" ]; then
+            failed_step="Publish"
+          else
+            failed_step="${BUILD_FAILED_STEP:-an unnamed step}"
+          fi
+
+          title="The site did not update"
+          if [ "$failed_step" = "Read the Pages settings" ]; then
+            # The one setting a developer turns on per repository. A fresh
+            # copy of the template always hits this on its first push, and
+            # the default token cannot turn Pages on itself (tried 2026-09-26).
+            body="The site is not published yet because GitHub Pages is not switched on for this repository. A developer turns it on once: Settings, Pages, source \"GitHub Actions\". After that, the next change to main publishes, or this run can be started again from the Actions tab. The run: $RUN_URL"
+          else
+            body="The site did not update after the latest change to main, so it still shows the previous version. The step that failed was \"$failed_step\". The details are in the run: $RUN_URL"
+          fi
+
+          existing=$(gh issue list --state open --search "\"$title\" in:title" --json number,title \
+            --jq ".[] | select(.title == \"$title\") | .number" | head -n 1)
+          if [ -n "$existing" ]; then
+            gh issue comment "$existing" --body "$body"
+          else
+            gh issue create --title "$title" --body "$body"
+          fi
+
+  # Runs only when the publish succeeded and closes the "site did not update"
+  # issue if one is open, so the person is not left with a stale report and
+  # the AI reading the issue list sees that the last publish worked.
+  close-report:
+    needs: [build, deploy]
+    if: success()
+    runs-on: ubuntu-latest
+    permissions:
+      issues: write
+    steps:
+      - name: Say that the site updated
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+        run: |
+          title="The site did not update"
+          existing=$(gh issue list --state open --search "\"$title\" in:title" --json number,title \
+            --jq ".[] | select(.title == \"$title\") | .number" | head -n 1)
+          if [ -n "$existing" ]; then
+            gh issue close "$existing" --comment "The site updated with the latest change to main, so it now shows the current version. The run: $RUN_URL"
+          fi
